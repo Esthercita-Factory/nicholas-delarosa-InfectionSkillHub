@@ -1,0 +1,82 @@
+# InfectionSkillHub: unit tests, PostgreSQL, the API and the participant client.
+#
+#   docker compose up -d --build
+#
+# 1. "tests" runs the xUnit suite. If anything fails the container exits with a non zero
+#    code and nothing else starts (everything depends on service_completed_successfully).
+# 2. Then PostgreSQL and, once it is healthy, the API. On its first start the API applies
+#    the migrations and loads the Instructors, Participants and Workshops sheets.
+# 3. Then the client (Angular served by Nginx), which forwards /api to the API container.
+#
+#   API reference (Scalar):  http://localhost:8666/scalar
+#   Participant client:      http://localhost:8667
+#
+# The client lives in its own repository, cloned next to this one (../InfectionSkillHub.Client).
+# Ports and secrets: .env file (copy .env.example).
+
+name: infectionskillhub
+
+services:
+  tests:
+    build:
+      context: .
+      dockerfile: src/InfectionSkillHub.Tests/Dockerfile
+    image: infectionskillhub-tests:local
+    restart: "no"
+
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    depends_on:
+      tests:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-infection_skillhub}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    # No "ports": the database is only reachable by the containers of this project.
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-infection_skillhub}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: src/InfectionSkillHub.Api/Dockerfile
+    image: infectionskillhub-api:local
+    restart: unless-stopped
+    depends_on:
+      tests:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=${POSTGRES_DB:-infection_skillhub};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}"
+      # 32+ characters. The default only serves to try it locally; set JWT_SIGNING_KEY in .env on a server.
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:-compose-local-only-do-not-use-in-production-0123456789}
+      # The client reaches the API through its own Nginx (same origin); this only covers `npm start`.
+      Cors__AllowedOrigins__0: ${CLIENT_DEV_ORIGIN:-http://localhost:4200}
+      OpenApi__Enabled: ${OPENAPI_ENABLED:-true}
+    ports:
+      - "${API_PORT:-8666}:8080"
+
+  client:
+    build:
+      context: ${CLIENT_BUILD_CONTEXT:-../InfectionSkillHub.Client}
+    image: infectionskillhub-client:local
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+    environment:
+      # Nginx forwards /api to this address: client and API share one origin.
+      API_UPSTREAM: http://api:8080
+    ports:
+      - "${CLIENT_PORT:-8667}:8080"
+
+volumes:
+  db-data:
