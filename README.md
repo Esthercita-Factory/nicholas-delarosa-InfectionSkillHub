@@ -52,7 +52,8 @@ src/
 │                                     QuestPDF certificate, ClosedXML reader, migrations and initial data.
 ├── InfectionSkillHub.Api             Controllers, JWT authentication, authorization policies, ProblemDetails,
 │                                     OpenAPI and Scalar. Composition root.
-└── InfectionSkillHub.Tests           xUnit + NSubstitute unit tests.
+├── InfectionSkillHub.Tests           xUnit + NSubstitute unit tests.
+└── InfectionSkillHub.IntegrationTests  The real API against a throwaway PostgreSQL container (Testcontainers).
 ```
 
 ```
@@ -82,6 +83,7 @@ Patterns applied:
 - QuestPDF (enrollment certificate)
 - ClosedXML (Excel import and initial data)
 - xUnit + NSubstitute (unit tests)
+- WebApplicationFactory + Testcontainers for PostgreSQL (integration tests)
 - Docker and Docker Compose
 - PostgreSQL 16/17
 
@@ -169,9 +171,24 @@ psql -U postgres -d infection_skillhub -f db/InfectionSkillHub.sql
 
 ### 5. Run the tests
 
+Unit tests (66): domain rules, application services, the Excel reader and the PDF generator. No database needed.
+
 ```bash
-dotnet test
+dotnet test src/InfectionSkillHub.Tests
 ```
+
+Integration tests (31): the whole API (migrations, Excel seed, JWT, controllers) against a real PostgreSQL 17
+started in a throwaway container. They cover what substitutes cannot: simultaneous enrollments racing for the
+last seats, double submissions, overlapping enrollments sent at once, the partial unique index, cancellation
+audit, re-enrollment history, ownership, the PDF, the Excel import with its row numbers and the report order.
+Docker must be running; the containers are removed when the run ends.
+
+```bash
+dotnet test src/InfectionSkillHub.IntegrationTests
+```
+
+`dotnet test` on the solution runs both. The `tests` service of `docker-compose.yml` runs only the unit tests,
+so deploying never depends on Docker being reachable from inside a container.
 
 ## Deployment (esthercita server)
 
