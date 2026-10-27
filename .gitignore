@@ -480,3 +480,16 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Shhhhhhhhhhhhh
+TheSlaughterContinues.pdf
+repos.txt
+
+# Local reference material (the application uses its own copy inside Infrastructure)
+/InfectionSkillHub_Data.xlsx
+
+# Local commit notes
+commitazo
+
+# Claude Code and Impeccable tooling (local only)
+.claude/
