@@ -8,6 +8,7 @@ using InfectionSkillHub.Infrastructure.Persistence;
 using InfectionSkillHub.Infrastructure.Security;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding.Metadata;
 using Microsoft.Extensions.Options;
@@ -100,6 +101,16 @@ builder.Services.AddCors(options => options.AddPolicy(CorsPolicy, policy => poli
     // Without it the browser cannot read the file name of the downloaded PDF.
     .WithExposedHeaders("Content-Disposition")));
 
+// Behind the server's Nginx (HTTPS) and the client's Nginx: without X-Forwarded-Proto the API would believe
+// requests arrive over http and the OpenAPI document would point Scalar to an http address.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    // The proxies are containers or the host, with changing addresses: their headers are accepted.
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
 builder.Services.AddOpenApi(options =>
 {
     options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
@@ -108,6 +119,7 @@ builder.Services.AddOpenApi(options =>
 
 var app = builder.Build();
 
+app.UseForwardedHeaders();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 
@@ -149,3 +161,6 @@ if (app.Configuration.GetValue("Database:MigrateOnStartup", true))
 }
 
 app.Run();
+
+/// <summary>Visible to the integration tests (WebApplicationFactory).</summary>
+public partial class Program;
