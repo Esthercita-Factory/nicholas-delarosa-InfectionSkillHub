@@ -16,9 +16,15 @@ set +a
 mkdir -p "$BACKUP_DIR"
 file="$BACKUP_DIR/infection_skillhub-$(date +%Y%m%d-%H%M%S).sql.gz"
 
+# A half-written dump never stays behind with a final name.
+trap 'rm -f "$file.partial"' EXIT
+
+# stdin comes from /dev/null: run from an interactive terminal, sudo and "docker compose exec" would
+# otherwise wait on the terminal and pg_dump would never start.
 sudo -n docker compose exec -T db pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner \
-  | gzip > "$file.partial"
+  < /dev/null | gzip > "$file.partial"
 mv "$file.partial" "$file"
+trap - EXIT
 
 find "$BACKUP_DIR" -name 'infection_skillhub-*.sql.gz' -mtime +"$KEEP_DAYS" -delete
 
