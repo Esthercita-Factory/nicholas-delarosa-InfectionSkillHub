@@ -271,13 +271,61 @@ followed by `sudo docker compose up -d`.
 
 ### Updating
 
+With GitHub Actions configured (below) every push to `main` updates the server by itself. By hand:
+
 ```bash
 cd ~/InfectionSkillHub.Client && git pull
 cd ~/InfectionSkillHub && git pull
-sudo docker compose up -d --build
+sudo docker compose pull api client   # images published by GitHub Actions
+sudo docker compose up -d             # or: sudo docker compose up -d --build to build on the server
 ```
 
 Only the containers whose image changed are recreated; the database volume is kept.
+
+### Continuous delivery (GitHub Actions)
+
+Both repositories have `.github/workflows/docker.yml`. On every push to `main`:
+
+1. The tests run (here unit and integration tests; in the client, `npm test` and the production build).
+2. If they pass, the image is published to GitHub Container Registry:
+   `ghcr.io/esthercita-factory/nicholas-delarosa-infectionskillhub-api` and
+   `ghcr.io/esthercita-factory/nicholas-delarosa-infectionskillhub.client` (`latest` and `sha-<commit>`).
+3. If the SSH secrets exist, the workflow connects to the server, pulls the new image and restarts only its
+   container (`docker compose pull` + `up -d --no-deps`). Without the secrets it publishes and stops there.
+
+One-time setup:
+
+- After the first run, make both packages public (organization > Packages > package settings > Change
+  visibility), or log the server into GHCR with `sudo docker login ghcr.io`.
+- In each repository, Settings > Secrets and variables > Actions, add `SSH_HOST`, `SSH_USER` and
+  `SSH_PRIVATE_KEY` (a key without passphrase, used only for deploying, whose public half is in the server's
+  `~/.ssh/authorized_keys`).
+- The deploy runs `sudo -n docker ...`, so `sudo docker` must not ask for a password for that user. If it does,
+  the deploy step fails with "a password is required" and the update has to be done by hand (see Updating).
+
+### Database backups
+
+`db/backup.sh` writes a compressed `pg_dump` of the database container to `~/backups/infectionskillhub` and
+deletes the ones older than 14 days (`BACKUP_DIR` and `KEEP_DAYS` change both). Daily at 03:00 with cron:
+
+```bash
+chmod +x ~/InfectionSkillHub/db/backup.sh
+~/InfectionSkillHub/db/backup.sh                      # first run by hand
+crontab -e
+# add this line:
+0 3 * * * $HOME/InfectionSkillHub/db/backup.sh >> $HOME/backups/infectionskillhub/backup.log 2>&1
+```
+
+Restoring a backup (it replaces the current data):
+
+```bash
+cd ~/InfectionSkillHub
+gunzip -c ~/backups/infectionskillhub/infection_skillhub-<date>.sql.gz \
+  | sudo docker compose exec -T db psql -U postgres -d infection_skillhub
+```
+
+Backups on the same server do not survive losing the server; copy one to your machine from time to time:
+`scp esthercita:backups/infectionskillhub/<file> .`
 
 ### Useful commands and common problems
 
@@ -293,6 +341,7 @@ sudo docker compose down            # stop everything, data is kept
 | `port is already allocated` | Another project took the port: change `API_PORT` or `CLIENT_PORT` in `.env`. |
 | `502 Bad Gateway` on a domain | The port in `proxy_pass` does not match `.env`, or the container is down (`sudo docker compose ps`). |
 | The API does not start: `Jwt:SigningKey` | `JWT_SIGNING_KEY` is missing in `.env` or shorter than 32 characters. |
+| `pull access denied` for an image | The package is still private in GHCR: make it public or `sudo docker login ghcr.io`. |
 | `unable to prepare context` for `client` | The client repository is not cloned at `../InfectionSkillHub.Client` (or set `CLIENT_BUILD_CONTEXT`). |
 
 ## Credentials
