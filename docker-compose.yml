@@ -12,6 +12,7 @@
 #   Participant client:      http://localhost:8667
 #
 # The client lives in its own repository, cloned next to this one (../InfectionSkillHub.Client).
+# Both images are also published to GHCR by GitHub Actions: on a server "docker compose pull" is enough.
 # Ports and secrets: .env file (copy .env.example).
 
 name: infectionskillhub
@@ -22,6 +23,8 @@ services:
       context: .
       dockerfile: src/InfectionSkillHub.Tests/Dockerfile
     image: infectionskillhub-tests:local
+    # The test image is never published: it is always built from the code.
+    pull_policy: build
     restart: "no"
 
   db:
@@ -47,7 +50,8 @@ services:
     build:
       context: .
       dockerfile: src/InfectionSkillHub.Api/Dockerfile
-    image: infectionskillhub-api:local
+    # Published by GitHub Actions on every push to main; "docker compose up --build" still builds it locally.
+    image: ${API_IMAGE:-ghcr.io/esthercita-factory/nicholas-delarosa-infectionskillhub-api:latest}
     restart: unless-stopped
     depends_on:
       tests:
@@ -67,7 +71,7 @@ services:
   client:
     build:
       context: ${CLIENT_BUILD_CONTEXT:-../InfectionSkillHub.Client}
-    image: infectionskillhub-client:local
+    image: ${CLIENT_IMAGE:-ghcr.io/esthercita-factory/nicholas-delarosa-infectionskillhub.client:latest}
     restart: unless-stopped
     depends_on:
       api:

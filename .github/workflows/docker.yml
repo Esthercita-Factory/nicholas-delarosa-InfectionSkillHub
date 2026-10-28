@@ -1,0 +1,103 @@
+# Every push to main: unit and integration tests; if they pass, the API image is published to
+# GitHub Container Registry and the esthercita server pulls it and restarts the api container.
+# The deploy job only runs when the SSH_HOST, SSH_USER and SSH_PRIVATE_KEY secrets exist.
+name: Docker
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Unit tests
+        run: dotnet test src/InfectionSkillHub.Tests --configuration Release
+
+      # Testcontainers starts a throwaway PostgreSQL on the runner's Docker.
+      - name: Integration tests
+        run: dotnet test src/InfectionSkillHub.IntegrationTests --configuration Release
+
+  publish:
+    # Without needs, the image would be published even when the tests fail.
+    needs: tests
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # GHCR requires a lowercase image name.
+      - name: Image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}-api" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: src/InfectionSkillHub.Api/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+  deploy:
+    needs: publish
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+    steps:
+      - name: Skip when the SSH secrets are not configured
+        if: env.SSH_PRIVATE_KEY == ''
+        run: echo "SSH secrets missing; publish only, no deploy."
+
+      - name: Pull the new image and restart the API on the server
+        if: env.SSH_PRIVATE_KEY != ''
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" '
+            set -e
+            cd ~/InfectionSkillHub
+            git pull --ff-only
+            sudo -n docker compose pull api
+            sudo -n docker compose up -d --no-deps --no-build api
+            sudo -n docker image prune -f
+          '
