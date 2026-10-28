@@ -99,5 +99,4 @@ jobs:
             git pull --ff-only
             sudo -n docker compose pull api
             sudo -n docker compose up -d --no-deps --no-build api
-            sudo -n docker image prune -f
           '
