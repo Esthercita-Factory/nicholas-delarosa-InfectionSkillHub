@@ -15,6 +15,11 @@ The participant application is a separate Angular client:
 (presentation option B: it consumes this API with the JWT). Employee operations are performed directly on the API
 through its **Scalar** reference.
 
+## Live
+
+- Participant client: https://infectionskillhub.clandev.com
+- API reference (Scalar): https://service.infectionskillhub.clandev.com/scalar
+
 ## Business rules
 
 All the rules live in the domain and application layers, never in the controllers.
@@ -221,7 +226,7 @@ If the browser cannot reach those ports, the server firewall has to open them (a
 
 ### Optional: domains with HTTPS
 
-The TL creates the DNS records (Cloudflare, DNS only). The names below are an example; use the ones assigned.
+The TL creates the DNS records (Cloudflare, DNS only). These are the domains in use:
 The site file is written without `sudo` (the `deployers` group owns `sites-available` and `sites-enabled`):
 
 ```bash
@@ -242,7 +247,7 @@ server {
 
 server {
     listen 80;
-    server_name services.infectionskillhub.clandev.com;
+    server_name service.infectionskillhub.clandev.com;
 
     location / {
         proxy_pass http://127.0.0.1:8666;
@@ -257,7 +262,7 @@ EOF
 ln -s /etc/nginx/sites-available/infectionskillhub /etc/nginx/sites-enabled/
 chmod 644 /etc/nginx/sites-available/infectionskillhub
 sudo nginx -t && sudo systemctl reload nginx
-sudo certbot --nginx -d infectionskillhub.clandev.com -d services.infectionskillhub.clandev.com
+sudo certbot --nginx -d infectionskillhub.clandev.com -d service.infectionskillhub.clandev.com
 ```
 
 `'EOF'` stays quoted so the shell does not expand Nginx variables such as `$host`. Once the domains work, the
